@@ -31,9 +31,21 @@ export const envSchema = z.object({
   // Phase 2 — providers, cron, notifications
   TRAVELPAYOUTS_TOKEN: z.string().optional(),
   MOCK_PROVIDER: flag,
+  /** Comma-separated routes ("SGN-HAN") for which MockProvider always returns a deal. */
+  MOCK_FORCE_DEAL: z
+    .string()
+    .default('')
+    .transform((s) =>
+      s
+        .split(',')
+        .map((r) => r.trim().toUpperCase())
+        .filter(Boolean),
+    ),
   CRON_SECRET: z.string().min(16).optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
+  /** Vertical slice #0 only: owner's chat id, used until users can link Telegram themselves (slice 8). */
+  TELEGRAM_CHAT_ID: z.string().optional(),
 })
 
 export type Env = z.infer<typeof envSchema>

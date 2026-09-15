@@ -36,8 +36,29 @@ npm run dev                 # http://localhost:3000 — /api/health phải trả
 | `npm run db:migrate` | Chạy migration (đọc `DATABASE_URL` từ `.env.local`) |
 | `npm run db:studio` | Drizzle Studio |
 | `npm run db:seed:airports` | Upsert danh sách sân bay |
+| `npm run test:int` | Integration test trên Postgres thật (cần `TEST_DATABASE_URL`, không có thì tự skip) |
+| `npm run dev:watch` | Tạo user + watch thử nghiệm (vertical slice #0) |
+| `npm run telegram:chat-id` | In chat id Telegram của bạn sau khi nhắn cho bot |
 | `npm run db:check` | Kiểm tra nhanh (chỉ đọc): phiên bản Postgres, extension, bảng, thử tìm sân bay không dấu |
 | `npm run spike` | Chạy lại spike Travelpayouts (xem `spike/README.md`) |
+
+## Vertical slice #0 (Phase 2): từ watch tới tin Telegram
+
+Chạy hết đường đi provider → db → alert → notification bằng dữ liệu giả, không gọi API thật.
+
+```powershell
+# 1. Tạo bot: nhắn @BotFather → /newbot → dán token vào TELEGRAM_BOT_TOKEN trong .env.local
+# 2. Nhắn 1 tin bất kỳ cho bot, rồi:
+npm run telegram:chat-id          # in ra TELEGRAM_CHAT_ID=... → dán vào .env.local
+# 3. Đặt MOCK_PROVIDER=1, MOCK_FORCE_DEAL=SGN-HAN, CRON_SECRET=<chuỗi ngẫu nhiên ≥16 ký tự>
+npm run dev:watch                 # tạo user + watch SGN→HAN, mục tiêu 1.500.000₫
+npm run dev
+curl -X POST "http://localhost:3000/api/cron/scan?wait=1" -H "x-cron-secret: <CRON_SECRET>"
+```
+
+`?wait=1` chạy tick ngay và trả về tóm tắt (chỉ hoạt động ngoài production; production luôn trả 202 rồi chạy trong `after()`).
+Kết quả mong đợi: `alertsCreated: 1`, `dispatch.sent: 1`, và **một tin Telegram thật** về máy.
+Gọi lại lần nữa trong cùng giờ thì phải ra `snapshotsInserted: 0` và `alertsCreated: 0` — đó là cơ chế chống spam.
 
 ## Deploy (Vercel Hobby)
 
