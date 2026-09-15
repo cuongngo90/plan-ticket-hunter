@@ -353,12 +353,15 @@ User nằm chung Postgres với `watches` nên join trực tiếp. Google OAuth 
 **Điểm dừng:** độ phủ ngày ≥ 70% và thấy VietJet trên quá nửa số tuyến → **đạt** (gộp endpoint: 97%, VJ 5/5). Chi tiết ở mục "Ràng buộc" #1.
 **Còn làm tay trước Phase 2 slice 3:** đọc ToS Data API · đối chiếu 5–10 giá trong báo cáo với web hãng · tra rate limit.
 
-### Phase 1 — Nền móng (2–3 ngày) — 🟡 chạy trên Neon 16/09/2026, chờ deploy Vercel
+### Phase 1 — Nền móng (2–3 ngày) — ✅ xong 16/09/2026, live tại https://plan-ticket-hunter.vercel.app
 ✅ Next.js 16.3.5 (TS strict, Tailwind v4, font Be Vietnam Pro) · Vitest · `lib/env.ts` (zod, validate lúc dùng) · Drizzle + postgres-js ·
 migration `0000_extensions` (pg_trgm) + `0001_users_airports` · `seed-airports.ts` (42 sân bay) · `/api/health` · GitHub Actions CI (Postgres 17 service) ·
 lint / typecheck / 16 unit test / build đều sạch.
 ✅ Neon (Postgres 18, us-east-2, pooled): migrate + seed 42 sân bay xong; `/api/health` → `{db: ok}` (cold ~3s, ấm ~265ms từ VN; trên Vercel `iad1` sẽ nhanh hơn nhiều).
-⏳ Còn: deploy Vercel (region `iad1`, gần Neon us-east-2) · tạo Telegram bot + Google OAuth client (cần trước Phase 2 slice 2 và 8).
+✅ Vercel Hobby, project `cuong-eede/plan-ticket-hunter`, region `iad1` (`vercel.json`); `DATABASE_URL` là Secret chỉ cho Production;
+`/api/health` → `{db: ok}`, ~15ms khi ấm.
+⏳ Còn: nối Git ở Vercel dashboard để tự deploy khi push (CLI không đọc được remote alias SSH) · tạo Telegram bot + Google OAuth client
+(cần trước Phase 2 slice 2 và 8).
 shadcn/ui dời sang slice 5 (chỉ cài khi bắt đầu làm UI).
 **Deliverable:** app deploy được, `/api/health` trả `{db: ok}`.
 
