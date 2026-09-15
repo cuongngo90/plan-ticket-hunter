@@ -1,0 +1,12 @@
+{
+  "name": "san-ve-provider-spike",
+  "private": true,
+  "type": "module",
+  "description": "Phase 0: kiểm tra dữ liệu Travelpayouts trước khi dựng app",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "spike": "node --env-file=.env providers.ts"
+  }
+}
