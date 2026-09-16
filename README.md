@@ -1,7 +1,7 @@
 # Săn Vé
 
 Web app + PWA theo dõi giá vé máy bay (chủ yếu nội địa VN) và báo khi có vé rẻ — dùng cá nhân cho vài người quen.
-Kế hoạch đầy đủ: [`docs/plan/ke-hoach-san-ve.md`](docs/plan/ke-hoach-san-ve.md).
+Kế hoạch đầy đủ: [`docs/plan/ke-hoach-san-ve.md`](docs/plan/ke-hoach-san-ve.md) · Tiến độ và bàn giao: [`docs/TIEN-DO.md`](docs/TIEN-DO.md).
 
 **Trạng thái:** Phase 0 (spike provider) ✅ · Phase 1 (nền móng) ✅ — live tại https://plan-ticket-hunter.vercel.app ([health](https://plan-ticket-hunter.vercel.app/api/health)).
 

@@ -8,7 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 "Săn Vé" — a personal (≤ 10 users, non-commercial, zero-cost) Next.js web app + PWA that watches flight prices, mostly Vietnamese domestic routes, and notifies via Web Push + Telegram when a deal appears.
 
-**`docs/plan/ke-hoach-san-ve.md` is the source of truth** for scope, decisions and the roadmap (Vietnamese). Read the relevant section before building a feature, and update its status and "Quyết định đã chốt" when a decision changes. Phase 0 (provider spike) and Phase 1 (foundation) are done; Phase 2 (MVP) starts with "vertical slice #0".
+**`docs/plan/ke-hoach-san-ve.md` is the source of truth** for scope, decisions and the roadmap (Vietnamese). Read the relevant section before building a feature, and update its status and "Quyết định đã chốt" when a decision changes.
+
+**Start a new session by reading `docs/TIEN-DO.md`**: what is done and verified, the infrastructure already set up (GitHub, Vercel, Neon branches, Telegram bot), what is still pending, and which slice comes next. Keep it updated as slices land — it is the handover document.
 
 UI text and docs are Vietnamese; code, identifiers and comments are English. The dev machine is Windows (PowerShell).
 
