@@ -187,6 +187,8 @@ export const alertEvents = pgTable(
     dedupeKey: text('dedupe_key').notNull(),
     scheduledFor: tstz('scheduled_for').notNull().defaultNow(),
     dispatchedAt: tstz('dispatched_at'),
+    /** Delivery attempts; a failed send is rescheduled until this hits the cap (lib/notifications/dispatcher.ts). */
+    attempts: smallint('attempts').notNull().default(0),
     createdAt: tstz('created_at').notNull().defaultNow(),
   },
   (t) => [

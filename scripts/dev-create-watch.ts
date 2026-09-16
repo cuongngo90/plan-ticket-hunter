@@ -28,8 +28,8 @@ async function main() {
       pax: { type: 'string', default: '1' },
     },
   })
-  const e = env()
-  const email = (values.email ?? e.ALLOWED_EMAILS[0])?.toLowerCase()
+  const config = env()
+  const email = (values.email ?? config.ALLOWED_EMAILS[0])?.toLowerCase()
   if (!email) throw new Error('Cần --email hoặc ALLOWED_EMAILS trong .env.local')
   const [origin, dest] = values.route.toUpperCase().split('-')
 
@@ -39,12 +39,12 @@ async function main() {
   const [user] = existing
     ? await db()
         .update(users)
-        .set({ telegramChatId: e.TELEGRAM_CHAT_ID ?? existing.telegramChatId })
+        .set({ telegramChatId: config.TELEGRAM_CHAT_ID ?? existing.telegramChatId })
         .where(eq(users.id, existing.id))
         .returning()
     : await db()
         .insert(users)
-        .values({ email, telegramChatId: e.TELEGRAM_CHAT_ID ?? null })
+        .values({ email, telegramChatId: config.TELEGRAM_CHAT_ID ?? null })
         .returning()
 
   const { watch, scanTaskIds } = await createWatch(db(), {

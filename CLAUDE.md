@@ -19,7 +19,8 @@ npm run dev                  # Turbopack dev server
 npm run build                # production build (also type-checks)
 npm run lint
 npm run typecheck            # next typegen && tsc --noEmit — typegen generates LayoutProps/RouteContext types
-npm test                     # vitest run (src/**/*.test.ts)
+npm test                     # vitest run — unit tests (src/**/*.test.ts, excluding *.int.test.ts)
+npm run test:int             # integration tests against a real Postgres (TEST_DATABASE_URL; skipped without it)
 npx vitest run src/lib/env.test.ts          # one file
 npx vitest run -t "normalizes the email"    # one test by name
 
@@ -27,10 +28,17 @@ npm run db:generate          # schema.ts → new SQL migration in drizzle/
 npm run db:migrate           # apply migrations (DATABASE_URL from .env.local)
 npm run db:seed:airports     # idempotent upsert of 42 airports
 npm run db:check             # read-only sanity check of the DB
+npm run dev:watch            # create the owner user + a test watch (vertical slice #0)
+npm run telegram:chat-id     # print your Telegram chat id after messaging the bot
 npm run spike                # re-run the Travelpayouts spike (needs spike/.env)
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint → typecheck → test → migrate + seed against a Postgres 17 service → build.
+CI (`.github/workflows/ci.yml`) runs lint → typecheck → unit tests → migrate + seed against a Postgres 17 service →
+integration tests → build.
+
+`.env.local` points at a **Neon `dev` branch**, never the production branch Vercel uses; `TEST_DATABASE_URL` points at the
+same dev branch. Local end-to-end run of the background pipeline:
+`curl -X POST "http://localhost:3000/api/cron/scan?wait=1" -H "x-cron-secret: <CRON_SECRET>"` (`?wait=1` is refused in production).
 
 ## Environment
 
@@ -55,7 +63,8 @@ Invariants that span several files and are easy to break:
 - **Scan unit = route × departure month** (1 adult, economy). Watches are only filters on snapshots and link to tasks N-N via `watch_scan_tasks`.
 - **Lease is a single `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED) RETURNING`** with a `lease_id` check on completion. Do not split it into SELECT + UPDATE.
 - **`observation_key` = the provider's `found_at`**; the unique key `(scan_task_id, depart_date, observation_key)` stops cached prices from becoming duplicate samples. Relative rules need `sample_count ≥ 8`.
-- **Deal "episodes"** reset the Improvement gate and the dedupe key once the price rebounds ≥ 10% or 7 days pass. Without this, a watch can never alert again.
+- **Deal "episodes"** reset the Improvement gate and the dedupe key once the price rebounds ≥ 10% or 7 days pass. Without this, a watch can never alert again. (Not built yet — slice 7; `watches.episode_no` already feeds the dedupe key.)
+- **The dispatcher claims an alert before sending** (so two ticks cannot send it twice) and **puts a failed send back in the queue** (`dispatched_at = null`, +15 min, up to `attempts` = 5). Never mark an alert dispatched without either delivering it or exhausting its attempts.
 - Provider code stays isolated in `src/lib/providers/<name>/`; everything else depends only on domain types, and `MockProvider` must keep the app usable without a real provider.
 
 ## Provider: Travelpayouts (the only one)

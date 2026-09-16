@@ -46,7 +46,7 @@ export interface MockPriceInput {
   date: string // YYYY-MM-DD
   daysToDeparture: number
   /** Changes when a "new observation" happens (e.g. the hour of the scan). */
-  window: string
+  observationWindow: string
   forceDeal?: boolean
 }
 
@@ -55,15 +55,15 @@ export interface MockPrice {
   carrier: string
 }
 
-export function mockPrice(i: MockPriceInput): MockPrice {
-  const route = `${i.origin}-${i.dest}`
+export function mockPrice(input: MockPriceInput): MockPrice {
+  const { origin, dest, date, daysToDeparture, observationWindow, forceDeal } = input
+  const route = `${origin}-${dest}`
   const base = BASE_VND[route] ?? DEFAULT_BASE_VND
-  const noise = 0.85 + 0.3 * hash01(`${route}|${i.date}|${i.window}`) // ±15%
-  const flash = hash01(`flash|${route}|${i.date}|${i.window}`) < FLASH_SALE_CHANCE ? 0.55 : 1
-  const deal = i.forceDeal ? 0.4 : 1
-  const raw = base * seasonFactor(i.date) * urgencyFactor(i.daysToDeparture) * noise * flash * deal
+  const noise = 0.85 + 0.3 * hash01(`${route}|${date}|${observationWindow}`) // ±15%
+  const flash = hash01(`flash|${route}|${date}|${observationWindow}`) < FLASH_SALE_CHANCE ? 0.55 : 1
+  const raw = base * seasonFactor(date) * urgencyFactor(daysToDeparture) * noise * flash * (forceDeal ? 0.4 : 1)
   return {
     amountVnd: Math.round(raw / 1000) * 1000, // fares end in 000
-    carrier: CARRIERS[Math.floor(hash01(`carrier|${route}|${i.date}`) * CARRIERS.length)],
+    carrier: CARRIERS[Math.floor(hash01(`carrier|${route}|${date}`) * CARRIERS.length)],
   }
 }

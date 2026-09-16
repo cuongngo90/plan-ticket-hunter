@@ -3,7 +3,7 @@ import { hash01, mockPrice, seasonFactor, urgencyFactor } from './generator'
 import { MockProvider } from './index'
 
 describe('mock generator', () => {
-  const base = { origin: 'SGN', dest: 'HAN', date: '2026-10-15', daysToDeparture: 29, window: 'w1' }
+  const base = { origin: 'SGN', dest: 'HAN', date: '2026-10-15', daysToDeparture: 29, observationWindow: 'w1' }
 
   it('is deterministic for the same input', () => {
     expect(mockPrice(base)).toEqual(mockPrice(base))
@@ -11,7 +11,9 @@ describe('mock generator', () => {
   })
 
   it('changes price when the observation window changes', () => {
-    const prices = new Set(['w1', 'w2', 'w3', 'w4'].map((window) => mockPrice({ ...base, window }).amountVnd))
+    const prices = new Set(
+      ['w1', 'w2', 'w3', 'w4'].map((observationWindow) => mockPrice({ ...base, observationWindow }).amountVnd),
+    )
     expect(prices.size).toBeGreaterThan(1)
   })
 

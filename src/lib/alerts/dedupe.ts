@@ -16,7 +16,7 @@ export interface DedupeInput {
   amountVnd: number
 }
 
-export function dedupeKey(i: DedupeInput): string {
-  const raw = [i.watchId, i.episodeNo, i.departDate, i.carrier ?? '-', priceBucket(i.amountVnd)].join('|')
-  return createHash('sha256').update(raw).digest('hex')
+export function dedupeKey(input: DedupeInput): string {
+  const parts = [input.watchId, input.episodeNo, input.departDate, input.carrier ?? '-', priceBucket(input.amountVnd)]
+  return createHash('sha256').update(parts.join('|')).digest('hex')
 }

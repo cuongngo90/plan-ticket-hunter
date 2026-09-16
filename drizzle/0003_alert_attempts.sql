@@ -1,0 +1,1 @@
+ALTER TABLE "alert_events" ADD COLUMN "attempts" smallint DEFAULT 0 NOT NULL;

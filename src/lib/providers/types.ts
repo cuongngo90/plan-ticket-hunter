@@ -35,17 +35,6 @@ export interface ProviderCapabilities {
 export interface FlightProvider {
   readonly id: ProviderId
   readonly capabilities: ProviderCapabilities
-  getCheapestByMonth(p: CheapestByMonthParams, opt?: { signal?: AbortSignal }): Promise<CheapestDate[]>
+  getCheapestByMonth(p: CheapestByMonthParams): Promise<CheapestDate[]>
   buildDeeplink(p: DeeplinkParams): string
-}
-
-export class ProviderError extends Error {
-  constructor(
-    message: string,
-    readonly providerId: ProviderId,
-    readonly retryable: boolean,
-  ) {
-    super(message)
-    this.name = 'ProviderError'
-  }
 }

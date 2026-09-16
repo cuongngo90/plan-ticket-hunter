@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { alertEvents, watchScanTasks, watches, type Watch } from '@/lib/db/schema'
 import { dispatchDue, type DispatchDeps, type DispatchSummary } from '@/lib/notifications/dispatcher'
 import type { CheapestDate, FlightProvider } from '@/lib/providers/types'
-import { addDays, daysBetween, todayInVietnam } from '@/lib/utils/date'
+import { addDays, daysBetween, monthOf, todayInVietnam } from '@/lib/utils/date'
 import { nextScanAt } from './cadence'
 import { scoreDeal } from './deal-detector'
 import { dedupeKey } from './dedupe'
@@ -58,21 +58,21 @@ async function processTask(deps: TickDeps, task: LeasedTask, summary: TickSummar
   const { db, provider } = deps
   const now = deps.now()
   const today = todayInVietnam(now)
-  const month = task.departMonth.slice(0, 7)
+  const month = monthOf(task.departMonth)
 
   const linked = await db
     .select({ watch: watches })
     .from(watchScanTasks)
     .innerJoin(watches, eq(watches.id, watchScanTasks.watchId))
     .where(and(eq(watchScanTasks.scanTaskId, task.id), eq(watches.active, true)))
-  const ws = linked.map((l) => l.watch)
+  const watchList = linked.map((l) => l.watch)
 
-  if (ws.length === 0) {
+  if (watchList.length === 0) {
     // Nobody watches it now; linking a new watch re-activates it (lib/watches/create.ts).
     await completeTask(db, task, { ok: true, nextScanAt: now, status: 'idle' })
     return
   }
-  const nearest = nearestWatchedDate(ws, month, today)
+  const nearest = nearestWatchedDate(watchList, month, today)
   if (nearest === null) {
     // Every watched date in this month has passed.
     await completeTask(db, task, { ok: true, nextScanAt: now, status: 'done' })
@@ -83,7 +83,7 @@ async function processTask(deps: TickDeps, task: LeasedTask, summary: TickSummar
     const { prices, inserted } = await scanTask(db, provider, task)
     summary.snapshotsInserted += inserted
 
-    for (const w of ws) {
+    for (const w of watchList) {
       const best = bestForWatch(w, prices, today)
       if (!best) continue
       const { score, rules } = scoreDeal({ amountVnd: best.amountVnd, targetAmountVnd: w.targetAmountVnd })
@@ -145,7 +145,7 @@ export async function runScanTick(deps: TickDeps): Promise<TickSummary> {
     lostLease: 0,
     snapshotsInserted: 0,
     alertsCreated: 0,
-    dispatch: { claimed: 0, sent: 0, failed: 0, skipped: 0 },
+    dispatch: { claimed: 0, sent: 0, retrying: 0, givenUp: 0 },
     errors: [],
   }
 

@@ -24,10 +24,8 @@ export interface NextScanInput {
 }
 
 export function nextScanAt({ now, daysToDeparture, failures, random = Math.random() }: NextScanInput): Date {
-  const hours =
-    failures > 0
-      ? Math.min(MAX_BACKOFF_HOURS, baseIntervalHours(daysToDeparture) * 2 ** (failures - 1))
-      : baseIntervalHours(daysToDeparture)
+  // Every consecutive failure doubles the wait (plan §5), capped so a broken task still retries daily-ish.
+  const hours = Math.min(MAX_BACKOFF_HOURS, baseIntervalHours(daysToDeparture) * 2 ** failures)
   const jitter = 0.9 + 0.2 * random
   return new Date(now.getTime() + hours * jitter * HOUR_MS)
 }

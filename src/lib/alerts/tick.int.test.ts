@@ -3,12 +3,13 @@
 // Never point it at production — it creates and deletes its own rows, but still.
 
 import { drizzle } from 'drizzle-orm/postgres-js'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { count, eq, inArray, sql } from 'drizzle-orm'
 import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Db } from '@/lib/db'
 import * as schema from '@/lib/db/schema'
 import type { TelegramMessage, TelegramSender } from '@/lib/notifications/channels/telegram'
+import { dispatchDue } from '@/lib/notifications/dispatcher'
 import { MockProvider } from '@/lib/providers/mock'
 import { addDays, todayInVietnam } from '@/lib/utils/date'
 import { createWatch } from '@/lib/watches/create'
@@ -25,10 +26,22 @@ const createdTasks: string[] = []
 
 // Each test uses routes nobody else uses, so a shared database cannot interfere.
 const ROUTE = { origin: 'CXR', dest: 'VCS' }
+const TEST_AIRPORTS = [ROUTE.origin, ROUTE.dest]
 
 class FakeTelegram implements TelegramSender {
   sent: TelegramMessage[] = []
   async send(m: TelegramMessage) {
+    this.sent.push(m)
+    return { ok: true as const, providerMsgId: String(this.sent.length) }
+  }
+}
+
+/** Fails the first send (a network blip), then behaves. */
+class FlakyTelegram implements TelegramSender {
+  sent: TelegramMessage[] = []
+  failNext = true
+  async send(m: TelegramMessage) {
+    if (this.failNext) return { ok: false as const, errorCode: 'TELEGRAM_NETWORK: boom', blocked: false }
     this.sent.push(m)
     return { ok: true as const, providerMsgId: String(this.sent.length) }
   }
@@ -46,13 +59,12 @@ async function makeUser() {
 describe.skipIf(!url)('scan tick against Postgres', () => {
   beforeAll(async () => {
     // start from a clean slate for our routes (a previous crashed run may have left rows)
-    await db.delete(schema.scanTasks).where(eq(schema.scanTasks.origin, ROUTE.origin))
+    await db.delete(schema.scanTasks).where(inArray(schema.scanTasks.origin, TEST_AIRPORTS))
   })
 
   afterAll(async () => {
     if (createdUsers.length) await db.delete(schema.users).where(inArray(schema.users.id, createdUsers))
-    if (createdTasks.length) await db.delete(schema.scanTasks).where(inArray(schema.scanTasks.id, createdTasks))
-    await db.delete(schema.scanTasks).where(eq(schema.scanTasks.origin, ROUTE.origin))
+    await db.delete(schema.scanTasks).where(inArray(schema.scanTasks.origin, TEST_AIRPORTS))
     await client?.end()
   })
 
@@ -92,12 +104,62 @@ describe.skipIf(!url)('scan tick against Postgres', () => {
     const sentRows = await db.select().from(schema.notifications).where(eq(schema.notifications.userId, user.id))
     expect(sentRows.map((r) => r.status)).toEqual(['sent'])
 
-    // Make the tasks due again and rescan with the same observation window.
-    await db.update(schema.scanTasks).set({ nextScanAt: sql`now()` }).where(inArray(schema.scanTasks.id, scanTaskIds))
-    const second = await runScanTick(deps)
-    expect(second.snapshotsInserted).toBe(0) // same foundAt → observation_key dedupe
-    expect(second.alertsCreated).toBe(0) // same dedupe_key → ON CONFLICT DO NOTHING
+    // Plan §11.3: scan 5 times in the same observation window → still one snapshot per date, one alert.
+    for (let i = 0; i < 4; i++) {
+      await db.update(schema.scanTasks).set({ nextScanAt: sql`now()` }).where(inArray(schema.scanTasks.id, scanTaskIds))
+      const again = await runScanTick(deps)
+      expect(again.snapshotsInserted).toBe(0) // same foundAt → observation_key dedupe
+      expect(again.alertsCreated).toBe(0) // same dedupe_key → ON CONFLICT DO NOTHING
+    }
     expect(telegram.sent).toHaveLength(1)
+    const perDate = await db
+      .select({ date: schema.priceSnapshots.departDate, samples: count() })
+      .from(schema.priceSnapshots)
+      .where(inArray(schema.priceSnapshots.scanTaskId, scanTaskIds))
+      .groupBy(schema.priceSnapshots.departDate)
+    expect(Math.max(...perDate.map((r) => r.samples))).toBe(1) // five scans, still one observation per date
+  })
+
+  it('an alert whose send fails goes back in the queue instead of being lost', async () => {
+    const fixedNow = new Date()
+    const today = todayInVietnam(fixedNow)
+    const user = await makeUser()
+    const { scanTaskIds } = await createWatch(db, {
+      userId: user.id,
+      origin: 'VCS',
+      dest: 'CXR', // reverse route: its own scan task
+      dateFrom: addDays(today, 20),
+      dateTo: addDays(today, 30),
+      targetAmountVnd: 5_000_000,
+    })
+    createdTasks.push(...scanTaskIds)
+
+    const flaky = new FlakyTelegram()
+    const deps: TickDeps = {
+      db,
+      provider: new MockProvider({ now: () => fixedNow }),
+      telegram: flaky,
+      now: () => fixedNow,
+      tickBudget: 50,
+    }
+
+    const first = await runScanTick(deps)
+    expect(first.alertsCreated).toBe(1)
+    expect(first.dispatch).toMatchObject({ sent: 0, retrying: 1 })
+
+    const [alert] = await db.select().from(schema.alertEvents).where(eq(schema.alertEvents.userId, user.id))
+    expect(alert.dispatchedAt).toBeNull() // back in the queue
+    expect(alert.attempts).toBe(1)
+
+    // Retry is scheduled 15 minutes out; pull it forward and let the sender succeed.
+    flaky.failNext = false
+    await db
+      .update(schema.alertEvents)
+      .set({ scheduledFor: sql`now()` })
+      .where(eq(schema.alertEvents.id, alert.id))
+    const second = await dispatchDue({ ...deps, deeplink: (p) => deps.provider.buildDeeplink(p) })
+    expect(second).toMatchObject({ sent: 1, retrying: 0, givenUp: 0 })
+    expect(flaky.sent).toHaveLength(1)
   })
 
   it('two concurrent leases never return the same task', async () => {

@@ -1,3 +1,4 @@
+import { formatDdMmYyyy } from '@/lib/utils/date'
 import { formatVnd } from '@/lib/utils/money'
 
 export interface DealMessageInput {
@@ -14,16 +15,13 @@ export interface DealMessageInput {
   now: Date
 }
 
-const RULE_REASON: Record<string, (i: DealMessageInput) => string> = {
-  ABSOLUTE: (i) => (i.targetAmountVnd ? `thấp hơn giá mục tiêu ${formatVnd(i.targetAmountVnd)}` : 'dưới giá mục tiêu'),
+const RULE_REASON: Record<string, (deal: DealMessageInput) => string> = {
+  ABSOLUTE: (deal) =>
+    deal.targetAmountVnd ? `thấp hơn giá mục tiêu ${formatVnd(deal.targetAmountVnd)}` : 'dưới giá mục tiêu',
 }
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function ddmmyyyy(iso: string): string {
-  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
 }
 
 function ageText(foundAt: Date, now: Date): string {
@@ -32,14 +30,16 @@ function ageText(foundAt: Date, now: Date): string {
 }
 
 /** Telegram HTML message (parse_mode=HTML). */
-export function formatDealTelegram(i: DealMessageInput): string {
+export function formatDealTelegram(deal: DealMessageInput): string {
   const lines = [
-    `🔥 <b>${escapeHtml(i.origin)} → ${escapeHtml(i.dest)}</b> · ${ddmmyyyy(i.departDate)}`,
-    `<b>${formatVnd(i.amountVnd)}</b>${i.carrier ? ` · ${escapeHtml(i.carrier)}` : ''} · 1 người lớn`,
+    `🔥 <b>${escapeHtml(deal.origin)} → ${escapeHtml(deal.dest)}</b> · ${formatDdMmYyyy(deal.departDate)}`,
+    `<b>${formatVnd(deal.amountVnd)}</b>${deal.carrier ? ` · ${escapeHtml(deal.carrier)}` : ''} · 1 người lớn`,
   ]
-  if (i.pax > 1) lines.push(`≈ ${formatVnd(i.amountVnd * i.pax)} cho ${i.pax} khách (ước tính)`)
-  const reasons = i.rules.map((r) => RULE_REASON[r]?.(i)).filter(Boolean)
-  if (reasons.length) lines.push(`Vì sao là deal: ${reasons.join('; ')} · điểm ${i.score}/100`)
-  if (i.sourceFoundAt) lines.push(`<i>Giá tham khảo, ${ageText(i.sourceFoundAt, i.now)} — giá thật có thể khác.</i>`)
+  if (deal.pax > 1) lines.push(`≈ ${formatVnd(deal.amountVnd * deal.pax)} cho ${deal.pax} khách (ước tính)`)
+  const reasons = deal.rules.map((r) => RULE_REASON[r]?.(deal)).filter(Boolean)
+  if (reasons.length) lines.push(`Vì sao là deal: ${reasons.join('; ')} · điểm ${deal.score}/100`)
+  if (deal.sourceFoundAt) {
+    lines.push(`<i>Giá tham khảo, ${ageText(deal.sourceFoundAt, deal.now)} — giá thật có thể khác.</i>`)
+  }
   return lines.join('\n')
 }

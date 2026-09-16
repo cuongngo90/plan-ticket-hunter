@@ -9,16 +9,16 @@ import { verifyCronSecret } from '@/lib/utils/cron-auth'
 export const maxDuration = 300
 
 export async function POST(request: Request) {
-  const e = env()
-  if (!e.CRON_SECRET) {
+  const config = env()
+  if (!config.CRON_SECRET) {
     return Response.json({ error: 'CRON_SECRET chưa được cấu hình' }, { status: 503 })
   }
-  if (!verifyCronSecret(request.headers.get('x-cron-secret'), e.CRON_SECRET)) {
+  if (!verifyCronSecret(request.headers.get('x-cron-secret'), config.CRON_SECRET)) {
     return Response.json({ error: 'unauthorized' }, { status: 401 })
   }
 
   // Dev/test only: `?wait=1` runs the tick inline and returns its summary.
-  if (e.NODE_ENV !== 'production' && new URL(request.url).searchParams.get('wait') === '1') {
+  if (config.NODE_ENV !== 'production' && new URL(request.url).searchParams.get('wait') === '1') {
     return Response.json(await runScanTick(defaultTickDeps()))
   }
 

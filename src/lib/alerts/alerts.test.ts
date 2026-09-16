@@ -25,8 +25,10 @@ describe('cadence', () => {
     expect(hoursAfter(nextScanAt({ now, daysToDeparture: 45, failures: 0, random: 0.999999 }))).toBeCloseTo(13.2)
   })
 
-  it('backs off 2ⁿ on failures, capped at 48h', () => {
-    expect(hoursAfter(nextScanAt({ now, daysToDeparture: 10, failures: 2, random: 0.5 }))).toBeCloseTo(8)
+  it('backs off 2ⁿ on every consecutive failure, capped at 48h', () => {
+    expect(hoursAfter(nextScanAt({ now, daysToDeparture: 10, failures: 0, random: 0.5 }))).toBeCloseTo(4)
+    expect(hoursAfter(nextScanAt({ now, daysToDeparture: 10, failures: 1, random: 0.5 }))).toBeCloseTo(8)
+    expect(hoursAfter(nextScanAt({ now, daysToDeparture: 10, failures: 2, random: 0.5 }))).toBeCloseTo(16)
     expect(hoursAfter(nextScanAt({ now, daysToDeparture: 100, failures: 5, random: 0.5 }))).toBeCloseTo(48)
   })
 })

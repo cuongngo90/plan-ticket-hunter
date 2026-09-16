@@ -80,7 +80,8 @@ Scanner ─ gọi provider (tuần tự) → ghi price_snapshots (bỏ qua quan 
    ▼
 Deal Detector ─ lọc snapshot theo từng watch → chấm điểm → 5 gate chống spam → alert_events
    ▼
-Dispatcher ─ gửi alert_events mới + mọi alert_events có scheduled_for ≤ now() chưa gửi
+Dispatcher ─ nhận việc (đánh dấu dispatched) rồi gửi mọi alert_events có scheduled_for ≤ now() chưa gửi;
+             gửi lỗi → trả về hàng đợi, +15 phút, tối đa 5 lần (user chặn bot thì bỏ luôn)
              → Web Push → Telegram fallback → log vào notifications
 
 Telegram → POST /api/telegram/webhook (header secret_token) — liên kết chat_id khi user bấm /start.
@@ -154,7 +155,7 @@ nên chỉ cần cột `amount_vnd bigint` — **mọi phép so sánh/percentile
 | `watch_scan_tasks` | Nối N-N: watch có dải ngày vắt qua 2 tháng thì gắn 2 task. Gắn watch vào task `idle` → `status='active'`, `next_scan_at=now()`. Task không còn watch → `idle` | PK `(watch_id, scan_task_id)` |
 | `price_snapshots` | **Một row cho mỗi quan sát thật**: giá rẻ nhất của `(scan_task, depart_date)`: `amount_vnd`, `carrier`, `stops`, `observed_at`, `source_found_at`, `observation_key` | ⭐ unique `(scan_task_id, depart_date, observation_key)` + `ON CONFLICT DO NOTHING`; `(origin, dest, depart_date, observed_at DESC)`; BRIN `observed_at` |
 | `route_stats` | Baseline tính trước theo tuyến + tháng bay + cửa sổ 30/90 ngày: p10, p25, median, min, `sample_count` | PK `(origin, dest, depart_month, window_days)` |
-| `alert_events` | Deal đã phát hiện, tách riêng khỏi việc gửi: score, danh sách rule khớp, `scheduled_for`, `dispatched_at` | ⭐ unique `dedupe_key`; partial `(scheduled_for) WHERE dispatched_at IS NULL` |
+| `alert_events` | Deal đã phát hiện, tách riêng khỏi việc gửi: score, danh sách rule khớp, `scheduled_for`, `dispatched_at`, `attempts` (số lần đã thử gửi) | ⭐ unique `dedupe_key`; partial `(scheduled_for) WHERE dispatched_at IS NULL` |
 | `notifications` | Log gửi: mỗi kênh 1 row, gồm status, `provider_msg_id`, `error_code` | partial `(user_id, created_at DESC) WHERE sent` để đếm daily cap |
 | `push_subscriptions` | endpoint, p256dh, auth, platform, `is_standalone`, `failure_count`, `revoked_at` | unique `endpoint` |
 | `provider_cache` | Thay Redis: `key`, `payload jsonb`, `fresh_until`, `stale_until` | PK `key`; index `stale_until` để rollup dọn |
@@ -367,9 +368,18 @@ shadcn/ui dời sang slice 5 (chỉ cài khi bắt đầu làm UI).
 
 ### Phase 2 — MVP (~20 ngày công ≈ 4 tuần)
 
-**⭐ Vertical slice #0 (1,5 ngày, làm trước mọi thứ):** hardcode tuyến SGN→HAN, dùng `MockProvider`, chưa cần auth, `TELEGRAM_CHAT_ID` của chính mình trong env.
-Tạo watch → `curl /api/cron/scan` → mock trả giá thấp → detector báo deal → **1 tin Telegram thật về điện thoại**. Slice này đi qua đủ mọi tầng
-(provider → db → alert → notification), nên nếu thiết kế có vấn đề sẽ lộ ra ngay từ ngày thứ 2.
+**⭐ Vertical slice #0 — ✅ xong 16/09/2026.** `npm run dev:watch` tạo watch SGN→HAN → `curl /api/cron/scan?wait=1` → MockProvider
+(`MOCK_FORCE_DEAL`) → detector báo deal → **1 tin Telegram thật**. Chạy thật trên Neon branch `dev`: 31 snapshot, 1 alert
+(626.000₫, VJ, 80/100), quét lại 5 lần không sinh thêm gì; không có `wait=1` thì trả 202 trong 26ms.
+
+**Quyết định phát sinh khi làm slice #0:**
+- Dispatcher **nhận việc trước khi gửi** (chống gửi trùng khi 2 tick chồng nhau) và **trả alert về hàng đợi khi gửi lỗi**
+  (+15 phút, tối đa 5 lần, cột `alert_events.attempts`). User chặn bot thì không thử lại.
+- `?wait=1` thay cho `?dry=1` trong plan cũ: chạy tick đồng bộ, chỉ bật ngoài production.
+- Watch giới hạn dải ngày **tối đa 62 ngày** (`MAX_RANGE_DAYS`) để một watch không gắn quá 3 scan task.
+- MockProvider không có "chế độ `cached`" riêng: `foundAt` làm tròn về đầu giờ, nên quét lại trong cùng giờ đương nhiên là cùng quan sát.
+- Chưa làm (đúng phân chia slice): `healthCheck`/`allowStale` trong `FlightProvider` (slice 3–4), nút "Tạm dừng watch" trong tin Telegram (slice 8),
+  gate 1–4 và episode (slice 7), Web Push (slice 8). Chuyến bay khởi hành **trong ngày** hiện không được theo dõi (chỉ tính ngày tương lai).
 
 | # | Slice | Ước lượng |
 |---|---|---|
@@ -430,7 +440,8 @@ Redis · circuit breaker · priority score nhiều thành phần · dispatcher b
      giết worker giữa chừng và khẳng định task được lease lại sau khi hết hạn, worker cũ không ghi đè được (sai `lease_id`).
    - Quét 5 lần với MockProvider chế độ `cached` (cùng `source_found_at`) → chỉ có 1 row snapshot, `sample_count` = 1.
    - Rollup prune: snapshot 100 ngày tuổi vẫn còn và được tính vào baseline 90 ngày; snapshot 130 ngày tuổi bị xoá.
-4. **Giả lập cron** — `curl -X POST "localhost:3000/api/cron/scan?dry=1" -H "x-cron-secret: dev"` phải trả 202 trong < 1s;
+4. **Giả lập cron** — `curl -X POST "localhost:3000/api/cron/scan" -H "x-cron-secret: …"` phải trả 202 trong < 1s;
+   thêm `?wait=1` (chỉ ngoài production) để chạy tick đồng bộ và xem tóm tắt;
    `scripts/simulate-cron.ts` nén 30 ngày (1.440 tick 30 phút, clock ảo) rồi báo cáo số lượt gọi provider, số alert/user/ngày (mục tiêu 0.5–2),
    số alert bị dời vì quiet hours **và đã được gửi lúc 07:00**, task bị bỏ đói.
 5. **Web Push** — Chrome desktop trên `localhost` (DevTools → Application → Push). Android/iOS thật dùng `cloudflared tunnel --url http://localhost:3000`

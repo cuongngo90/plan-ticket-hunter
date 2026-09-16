@@ -1,6 +1,7 @@
 import type { Db } from '@/lib/db'
 import { priceSnapshots } from '@/lib/db/schema'
 import type { CheapestDate, FlightProvider } from '@/lib/providers/types'
+import { monthOf } from '@/lib/utils/date'
 import type { LeasedTask } from './scheduler'
 
 export interface ScanResult {
@@ -14,8 +15,11 @@ export interface ScanResult {
  * price — or retrying — never adds a fake sample (plan §3).
  */
 export async function scanTask(db: Db, provider: FlightProvider, task: LeasedTask): Promise<ScanResult> {
-  const month = task.departMonth.slice(0, 7)
-  const prices = await provider.getCheapestByMonth({ origin: task.origin, dest: task.dest, month })
+  const prices = await provider.getCheapestByMonth({
+    origin: task.origin,
+    dest: task.dest,
+    month: monthOf(task.departMonth),
+  })
   if (prices.length === 0) return { prices, inserted: 0 }
 
   const inserted = await db

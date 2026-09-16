@@ -1,5 +1,5 @@
 import type { CheapestByMonthParams, CheapestDate, DeeplinkParams, FlightProvider } from '../types'
-import { datesInMonth, daysBetween, todayInVietnam } from '@/lib/utils/date'
+import { datesInMonth, daysBetween, toDdMm, todayInVietnam } from '@/lib/utils/date'
 import { mockPrice } from './generator'
 
 export interface MockProviderOptions {
@@ -28,7 +28,7 @@ export class MockProvider implements FlightProvider {
     const now = this.now()
     const today = todayInVietnam(now)
     const foundAt = new Date(Math.floor(now.getTime() / 3_600_000) * 3_600_000)
-    const window = foundAt.toISOString()
+    const observationWindow = foundAt.toISOString()
     const future = datesInMonth(month).filter((d) => d > today)
     // The forced deal lands on the middle future date, so it is inside most test watches.
     const dealDate = this.forceDeal.has(`${origin}-${dest}`) ? future[Math.floor(future.length / 2)] : undefined
@@ -39,7 +39,7 @@ export class MockProvider implements FlightProvider {
         dest,
         date,
         daysToDeparture: daysBetween(today, date),
-        window,
+        observationWindow,
         forceDeal: date === dealDate,
       })
       return { date, amountVnd, carrier, stops: 0, foundAt, deeplink: null }
@@ -47,7 +47,6 @@ export class MockProvider implements FlightProvider {
   }
 
   buildDeeplink({ origin, dest, date, pax }: DeeplinkParams): string {
-    const ddmm = `${date.slice(8, 10)}${date.slice(5, 7)}`
-    return `https://www.aviasales.com/search/${origin}${ddmm}${dest}${pax}`
+    return `https://www.aviasales.com/search/${origin}${toDdMm(date)}${dest}${pax}`
   }
 }

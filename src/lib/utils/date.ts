@@ -12,6 +12,21 @@ export function todayInVietnam(now: Date = new Date()): string {
   return toIsoDate(new Date(now.getTime() + 7 * 3_600_000))
 }
 
+/** "2026-10-01" (or any date in it) → "2026-10". */
+export function monthOf(iso: string): string {
+  return iso.slice(0, 7)
+}
+
+/** "2026-10-16" → "16/10/2026" */
+export function formatDdMmYyyy(iso: string): string {
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+}
+
+/** "2026-10-16" → "1610", the day-month form Aviasales uses in search URLs. */
+export function toDdMm(iso: string): string {
+  return `${iso.slice(8, 10)}${iso.slice(5, 7)}`
+}
+
 export function daysBetween(fromIso: string, toIso: string): number {
   return Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / DAY_MS)
 }

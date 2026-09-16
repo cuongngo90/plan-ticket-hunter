@@ -1,11 +1,18 @@
 import { eq, sql } from 'drizzle-orm'
 import type { Db } from '@/lib/db'
-import { notifications, users, watches } from '@/lib/db/schema'
+import { alertEvents, notifications, users, watches } from '@/lib/db/schema'
 import type { TelegramSender } from './channels/telegram'
-import { formatDealTelegram } from './templates'
+import { formatDealTelegram, type DealMessageInput } from './templates'
 
-// Sends every alert_event that is due (scheduled_for ≤ now, not yet dispatched) — both deals found in this
-// tick and ones deferred earlier (quiet hours, digest). Web Push lands in slice 8; Telegram only for now.
+// Sends every alert_event that is due (scheduled_for ≤ now, not yet dispatched) — deals found in this tick
+// and ones deferred earlier (quiet hours, digest). Web Push lands in slice 8; Telegram only for now.
+//
+// Claim before sending so two concurrent ticks never send the same alert twice. A send that fails or has no
+// channel is put back in the queue (dispatched_at = null, scheduled_for pushed out) until MAX_ATTEMPTS, so
+// alerts are not silently lost — the plan requires every undelivered due alert to be retried.
+
+const MAX_ATTEMPTS = 5
+const RETRY_DELAY_MIN = 15
 
 export interface DispatchDeps {
   db: Db
@@ -19,8 +26,10 @@ export interface DispatchDeps {
 export interface DispatchSummary {
   claimed: number
   sent: number
-  failed: number
-  skipped: number
+  /** Failed and rescheduled for another attempt. */
+  retrying: number
+  /** Gave up after MAX_ATTEMPTS. */
+  givenUp: number
 }
 
 interface DueRow extends Record<string, unknown> {
@@ -31,24 +40,38 @@ interface DueRow extends Record<string, unknown> {
   amount_vnd: string | number
   carrier: string | null
   deeplink: string | null
-  source_found_at: string | null
+  source_found_at: string | Date | null
   score: number
   rules: string[]
+  attempts: number
   origin: string
   dest: string
   pax: number
   target_amount_vnd: string | number | null
   telegram_chat_id: string | null
-  telegram_blocked_at: string | null
+  telegram_blocked_at: string | Date | null
 }
 
-export async function dispatchDue(deps: DispatchDeps, limit = 50): Promise<DispatchSummary> {
-  const { db } = deps
-  // Claim first (mark dispatched) so two concurrent ticks never send the same alert twice.
-  // Trade-off for slice #0: a send that fails is logged, not retried.
-  const due = await db.execute<DueRow>(sql`
+function toDealMessage(row: DueRow, now: Date): DealMessageInput {
+  return {
+    origin: row.origin,
+    dest: row.dest,
+    departDate: row.depart_date,
+    amountVnd: Number(row.amount_vnd),
+    carrier: row.carrier,
+    pax: row.pax,
+    score: row.score,
+    rules: row.rules,
+    targetAmountVnd: row.target_amount_vnd === null ? null : Number(row.target_amount_vnd),
+    sourceFoundAt: row.source_found_at ? new Date(row.source_found_at) : null,
+    now,
+  }
+}
+
+async function claimDue(db: Db, limit: number): Promise<DueRow[]> {
+  return db.execute<DueRow>(sql`
     with claimed as (
-      update alert_events set dispatched_at = now()
+      update alert_events set dispatched_at = now(), attempts = attempts + 1
       where id in (
         select id from alert_events
         where dispatched_at is null and scheduled_for <= now()
@@ -59,51 +82,50 @@ export async function dispatchDue(deps: DispatchDeps, limit = 50): Promise<Dispa
       returning *
     )
     select c.id, c.watch_id, c.user_id, c.depart_date::text as depart_date, c.amount_vnd, c.carrier, c.deeplink,
-           c.source_found_at, c.score, c.rules,
+           c.source_found_at, c.score, c.rules, c.attempts,
            w.origin, w.dest, w.pax, w.target_amount_vnd,
            u.telegram_chat_id, u.telegram_blocked_at
     from claimed c
     join watches w on w.id = c.watch_id
     join users u on u.id = c.user_id`)
+}
 
-  const summary: DispatchSummary = { claimed: due.length, sent: 0, failed: 0, skipped: 0 }
+/** Put a failed alert back in the queue, unless it has been tried too many times. */
+async function requeue(db: Db, row: DueRow): Promise<boolean> {
+  if (row.attempts >= MAX_ATTEMPTS) return false
+  await db
+    .update(alertEvents)
+    .set({ dispatchedAt: null, scheduledFor: sql`now() + make_interval(mins => ${RETRY_DELAY_MIN})` })
+    .where(eq(alertEvents.id, row.id))
+  return true
+}
 
-  for (const a of due) {
-    const amountVnd = Number(a.amount_vnd)
-    const chatId = a.telegram_chat_id ?? deps.fallbackChatId
-    if (!deps.telegram || !chatId || a.telegram_blocked_at) {
-      summary.skipped++
-      await db.insert(notifications).values({
-        alertEventId: a.id,
-        userId: a.user_id,
-        channel: 'telegram',
-        status: 'skipped',
-        errorCode: !deps.telegram ? 'NOT_CONFIGURED' : a.telegram_blocked_at ? 'BLOCKED' : 'NO_CHAT_ID',
-      })
-      continue
-    }
+export async function dispatchDue(deps: DispatchDeps, limit = 50): Promise<DispatchSummary> {
+  const { db } = deps
+  const due = await claimDue(db, limit)
+  const summary: DispatchSummary = { claimed: due.length, sent: 0, retrying: 0, givenUp: 0 }
 
-    const html = formatDealTelegram({
-      origin: a.origin,
-      dest: a.dest,
-      departDate: a.depart_date,
-      amountVnd,
-      carrier: a.carrier,
-      pax: a.pax,
-      score: a.score,
-      rules: a.rules,
-      targetAmountVnd: a.target_amount_vnd === null ? null : Number(a.target_amount_vnd),
-      sourceFoundAt: a.source_found_at ? new Date(a.source_found_at) : null,
-      now: deps.now(),
-    })
-    const url = a.deeplink ?? deps.deeplink({ origin: a.origin, dest: a.dest, date: a.depart_date, pax: a.pax })
-    const result = await deps.telegram.send({ chatId, html, button: { text: 'Xem giá thật', url } })
+  for (const row of due) {
+    const chatId = row.telegram_chat_id ?? deps.fallbackChatId
+    const blocked = row.telegram_blocked_at !== null
+    const unavailable = !deps.telegram ? 'NOT_CONFIGURED' : blocked ? 'BLOCKED' : !chatId ? 'NO_CHAT_ID' : null
+
+    const result = unavailable
+      ? ({ ok: false, errorCode: unavailable, blocked } as const)
+      : await deps.telegram!.send({
+          chatId: chatId!,
+          html: formatDealTelegram(toDealMessage(row, deps.now())),
+          button: {
+            text: 'Xem giá thật',
+            url: row.deeplink ?? deps.deeplink({ origin: row.origin, dest: row.dest, date: row.depart_date, pax: row.pax }),
+          },
+        })
 
     await db.insert(notifications).values({
-      alertEventId: a.id,
-      userId: a.user_id,
+      alertEventId: row.id,
+      userId: row.user_id,
       channel: 'telegram',
-      status: result.ok ? 'sent' : 'failed',
+      status: result.ok ? 'sent' : unavailable ? 'skipped' : 'failed',
       providerMsgId: result.ok ? result.providerMsgId : null,
       errorCode: result.ok ? null : result.errorCode,
     })
@@ -112,14 +134,18 @@ export async function dispatchDue(deps: DispatchDeps, limit = 50): Promise<Dispa
       summary.sent++
       await db
         .update(watches)
-        .set({ lastNotifiedAt: deps.now(), lastNotifiedAmountVnd: amountVnd })
-        .where(eq(watches.id, a.watch_id))
-    } else {
-      summary.failed++
-      if (result.blocked) {
-        await db.update(users).set({ telegramBlockedAt: deps.now() }).where(eq(users.id, a.user_id))
-      }
+        .set({ lastNotifiedAt: deps.now(), lastNotifiedAmountVnd: Number(row.amount_vnd) })
+        .where(eq(watches.id, row.watch_id))
+      continue
     }
+
+    if (result.blocked && !blocked) {
+      await db.update(users).set({ telegramBlockedAt: deps.now() }).where(eq(users.id, row.user_id))
+    }
+    // A blocked user will not become reachable by retrying; anything else might.
+    const willRetry = !result.blocked && (await requeue(db, row))
+    if (willRetry) summary.retrying++
+    else summary.givenUp++
   }
   return summary
 }
