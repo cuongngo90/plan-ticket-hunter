@@ -19,8 +19,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 
-// Data model: docs/plan/ke-hoach-san-ve.md §3. Still to come: route_stats, push_subscriptions,
-// telegram_link_tokens, provider_cache, provider_quota_usage (later Phase 2 slices).
+// Data model: docs/plan/ke-hoach-san-ve.md §3 — complete as of slice 1.
 
 const tstz = (name: string) => timestamp(name, { withTimezone: true })
 const vnd = (name: string) => bigint(name, { mode: 'number' }) // VND has no minor unit; < 2^53 by far
@@ -216,6 +215,85 @@ export const notifications = pgTable(
     createdAt: tstz('created_at').notNull().defaultNow(),
   },
   (t) => [index('notifications_user_sent_idx').on(t.userId, t.createdAt.desc()).where(sql`${t.status} = 'sent'`)],
+)
+
+/** Baselines the relative deal rules compare against (recomputed by the daily rollup, slice 7). */
+export const routeStats = pgTable(
+  'route_stats',
+  {
+    origin: char('origin', { length: 3 }).notNull(),
+    dest: char('dest', { length: 3 }).notNull(),
+    departMonth: date('depart_month').notNull(),
+    /** Observation window in days: 30 or 90. */
+    windowDays: smallint('window_days').notNull(),
+    p10Vnd: vnd('p10_vnd').notNull(),
+    p25Vnd: vnd('p25_vnd').notNull(),
+    medianVnd: vnd('median_vnd').notNull(),
+    minVnd: vnd('min_vnd').notNull(),
+    /** Relative rules stay off below 8 real observations (plan §5). */
+    sampleCount: integer('sample_count').notNull(),
+    computedAt: tstz('computed_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.origin, t.dest, t.departMonth, t.windowDays] })],
+)
+
+/** Web Push endpoints (slice 8). 404/410 from the push service sets revoked_at. */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    platform: text('platform'),
+    isStandalone: boolean('is_standalone'),
+    failureCount: smallint('failure_count').notNull().default(0),
+    revokedAt: tstz('revoked_at'),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('push_subscriptions_endpoint_idx').on(t.endpoint), index('push_subscriptions_user_idx').on(t.userId)],
+)
+
+/** One-shot tokens for `t.me/<bot>?start=<token>` linking (slice 8). */
+export const telegramLinkTokens = pgTable('telegram_link_tokens', {
+  token: text('token').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  expiresAt: tstz('expires_at').notNull(),
+  usedAt: tstz('used_at'),
+  createdAt: tstz('created_at').notNull().defaultNow(),
+})
+
+/** Provider response cache — Postgres instead of Redis (slice 4). */
+export const providerCache = pgTable(
+  'provider_cache',
+  {
+    key: text('key').primaryKey(),
+    payload: jsonb('payload').notNull(),
+    /** Fresh until this; between fresh and stale it is served stale while revalidating. */
+    freshUntil: tstz('fresh_until').notNull(),
+    staleUntil: tstz('stale_until').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('provider_cache_stale_idx').on(t.staleUntil)],
+)
+
+/** Provider call counter per month, for audit and rate-limit alarms (slice 4). */
+export const providerQuotaUsage = pgTable(
+  'provider_quota_usage',
+  {
+    provider: text('provider').notNull(),
+    endpoint: text('endpoint').notNull(),
+    /** "YYYY-MM" */
+    period: char('period', { length: 7 }).notNull(),
+    calls: integer('calls').notNull().default(0),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.provider, t.endpoint, t.period] })],
 )
 
 export type User = typeof users.$inferSelect

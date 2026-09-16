@@ -3,7 +3,7 @@
 // Never point it at production — it creates and deletes its own rows, but still.
 
 import { drizzle } from 'drizzle-orm/postgres-js'
-import { count, eq, inArray, sql } from 'drizzle-orm'
+import { count, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Db } from '@/lib/db'
@@ -60,6 +60,11 @@ describe.skipIf(!url)('scan tick against Postgres', () => {
   beforeAll(async () => {
     // start from a clean slate for our routes (a previous crashed run may have left rows)
     await db.delete(schema.scanTasks).where(inArray(schema.scanTasks.origin, TEST_AIRPORTS))
+    // The tick leases whatever is due, so park everything else (dev fixtures) out of the way.
+    await db
+      .update(schema.scanTasks)
+      .set({ nextScanAt: sql`now() + interval '7 days'` })
+      .where(notInArray(schema.scanTasks.origin, TEST_AIRPORTS))
   })
 
   afterAll(async () => {

@@ -383,7 +383,7 @@ shadcn/ui dời sang slice 5 (chỉ cài khi bắt đầu làm UI).
 
 | # | Slice | Ước lượng |
 |---|---|---|
-| 1 | Schema đầy đủ + lease query + queries + `seed-dev.ts` (90 ngày snapshot giả) | 2 ngày |
+| 1 | ✅ Schema đầy đủ (13 bảng) + lease query + `db/queries/*` + `seed-dev.ts` (90 ngày snapshot giả) | 2 ngày |
 | 2 | Auth.js Google OAuth + allowlist + credentials cho E2E + `proxy.ts` + settings | 1 ngày |
 | 3 | `TravelpayoutsProvider` (2 endpoint, gộp theo ngày) + mapper + fixtures (lấy từ `spike/results/*.json`) + test mapper | 2 ngày |
 | 4 | Cache (Postgres) / QuotaCounter / Retry | 1 ngày |

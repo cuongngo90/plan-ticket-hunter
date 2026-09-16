@@ -36,6 +36,7 @@ npm run dev                 # http://localhost:3000 — /api/health phải trả
 | `npm run db:migrate` | Chạy migration (đọc `DATABASE_URL` từ `.env.local`) |
 | `npm run db:studio` | Drizzle Studio |
 | `npm run db:seed:airports` | Upsert danh sách sân bay |
+| `npm run db:seed:dev` | Dữ liệu dev: 3 user, 6 tuyến với các mẫu giá khác nhau, 90 ngày lịch sử, 12 watch (từ chối chạy nếu DB giống production, trừ khi thêm `--force`) |
 | `npm run test:int` | Integration test trên Postgres thật (cần `TEST_DATABASE_URL`, không có thì tự skip) |
 | `npm run dev:watch` | Tạo user + watch thử nghiệm (vertical slice #0) |
 | `npm run telegram:chat-id` | In chat id Telegram của bạn sau khi nhắn cho bot |

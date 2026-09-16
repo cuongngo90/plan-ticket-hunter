@@ -18,6 +18,7 @@
     "db:studio": "drizzle-kit studio",
     "db:seed:airports": "tsx --env-file=.env.local scripts/seed-airports.ts",
     "db:check": "tsx --env-file=.env.local scripts/check-db.ts",
+    "db:seed:dev": "tsx --env-file=.env.local scripts/seed-dev.ts",
     "dev:watch": "tsx --env-file=.env.local scripts/dev-create-watch.ts",
     "telegram:chat-id": "tsx --env-file=.env.local scripts/telegram-chat-id.ts",
     "test:int": "vitest run --config vitest.int.config.mts",

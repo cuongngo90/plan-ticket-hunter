@@ -27,6 +27,7 @@ npx vitest run -t "normalizes the email"    # one test by name
 npm run db:generate          # schema.ts → new SQL migration in drizzle/
 npm run db:migrate           # apply migrations (DATABASE_URL from .env.local)
 npm run db:seed:airports     # idempotent upsert of 42 airports
+npm run db:seed:dev          # dev fixtures: 3 users, 6 price patterns, 90 days of history, 12 watches
 npm run db:check             # read-only sanity check of the DB
 npm run dev:watch            # create the owner user + a test watch (vertical slice #0)
 npm run telegram:chat-id     # print your Telegram chat id after messaging the bot
